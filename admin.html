@@ -13,11 +13,12 @@
         #header { height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; font-size: 17px; font-weight: 500; }
         .head-icon { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
         #status-bar { width: 100%; text-align: center; color: #b2b2b2; font-size: 12px; padding: 2px 0; transition: color 0.3s; }
+        #loc-bar { width: 100%; text-align: center; font-size: 12px; color: #07c160; padding: 2px 0 4px; display: none; }
 
         #container { flex: 1; display: flex; overflow: hidden; }
 
         /* ── 左侧列表 ── */
-        #side-list { width: 85px; background: #ededed; display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; border-right: 1px solid #dcdcdc; }
+        #side-list { width: 85px; background: #ededed; display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; border-right: 1px solid #dcdcdc; }
         .u-item { padding: 12px 2px; text-align: center; color: #333; cursor: pointer; font-size: 13px; position: relative; border-bottom: 1px solid #e0e0e0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
         .u-item.active { background: #e2e2e2; font-weight: bold; }
         .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; transition: background 0.3s; }
@@ -25,9 +26,10 @@
         .offline { background: #b2b2b2; }
         .badge { position: absolute; top: 2px; right: 2px; background: #fa5151; color: white; border-radius: 10px; min-width: 16px; height: 16px; line-height: 16px; font-size: 10px; padding: 0 4px; }
 
+
         /* ── 聊天区 ── */
         #chat-area { flex: 1; background: #ededed; display: flex; flex-direction: column; overflow: hidden; }
-        #box { flex: 1; overflow-y: auto; padding: 15px 10px; -webkit-overflow-scrolling: touch; }
+        #box { flex: 1; overflow-y: auto; padding: 15px 10px; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 
         /* 时间戳样式 */
         .msg-time { text-align: center; font-size: 12px; color: #b2b2b2; margin: 10px 0 16px 0; clear: both; }
@@ -42,6 +44,10 @@
         .visitor .bubble-txt::before { content: ""; position: absolute; left: -9px; top: 12px; border: 5px solid transparent; border-right-color: #fff; }
         .admin .bubble-txt { background: #95ec69; }
         .admin .bubble-txt::before { content: ""; position: absolute; right: -9px; top: 12px; border: 5px solid transparent; border-left-color: #95ec69; }
+
+        /* ── 新增：链接样式 ── */
+        .bubble-txt a { color: #1677FF; text-decoration: underline; word-break: break-all; }
+        .admin .bubble-txt a { color: #0a5fd1; }
 
         .bubble-img { max-width: 160px; border-radius: 4px; margin: 0 10px; border: 1px solid #dcdcdc; display: block; cursor: pointer; }
 
@@ -60,6 +66,7 @@
         #viewer img { max-width: 100%; max-height: 100%; object-fit: contain; }
 
         #empty-tip { flex: 1; display: flex; align-items: center; justify-content: center; color: #b2b2b2; font-size: 15px; }
+
     </style>
 </head>
 <body>
@@ -75,6 +82,7 @@
         </div>
     </div>
     <div id="status-bar">正在连接...</div>
+    <div id="loc-bar"></div>
 </div>
 
 <div id="container">
@@ -111,8 +119,11 @@
     let onlineStatus = {};
     let onlineTimer = {};
     let renderedKeys = new Set();
-    let lastRenderedTs = 0; // 用于记录当前聊天窗口最后一条消息的时间戳
+    let lastRenderedTs = 0;
     const ONLINE_TIMEOUT = 5 * 60 * 1000;
+
+    // ── 新增：位置 Map ────────────────────────────────────────
+    const userLocations = new Map(); // uid -> "广东省广州市天河区"
 
     const ipt = document.getElementById('ipt');
     const box = document.getElementById('box');
@@ -130,6 +141,25 @@
         el.classList.add('show');
         if (toastTimer) clearTimeout(toastTimer);
         toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+    }
+
+
+    // ── 新增：链接渲染 ────────────────────────────────────────
+    function renderTextWithLinks(text) {
+        if (!text) return '';
+        let s = text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        // [文字](url) 格式
+        s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
+            (_, label, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+        // 裸 URL
+        s = s.replace(/(https?:\/\/[^\s\u4e00-\u9fa5，。！？、；：""''【】《》（）&<>]+)/g, url => {
+            const clean = url.replace(/[.,!?;:'")\]]+$/, '');
+            return `<a href="${clean}" target="_blank" rel="noopener noreferrer">${clean}</a>`;
+        });
+        return s;
     }
 
     function isConnected() { return ws && ws.readyState === WebSocket.OPEN; }
@@ -169,7 +199,6 @@
         ws.onmessage = (e) => {
             const res = JSON.parse(e.data);
             
-            // 过滤对方正在输入的状态
             if (res.type === "typing") return;
 
             const msgs = res.type === "history" ? res.data : [res.data];
@@ -182,13 +211,12 @@
             }
 
             msgs.forEach(m => {
-                // 提取精确的 13 位时间戳
                 let ts = Date.now();
                 if (m.id) {
                     const match = m.id.match(/\d{13}/);
                     if (match) ts = parseInt(match[0]);
                 }
-                m._ts = ts; // 附加到对象上供渲染使用
+                m._ts = ts;
 
                 const k = m.id || `fallback_${m.from}_${m.to}_${ts}_${Math.random()}`;
                 if (msgMap.has(k)) return;
@@ -198,7 +226,13 @@
                 
                 if (m.from !== 'admin') {
                     markOnline(uid);
-                    
+
+                    // 收到位置则存储，若正在查看该用户立即更新顶部位置栏
+                    if (m.location) {
+                        userLocations.set(uid, m.location);
+                        if (uid === activeId) updateTitleLoc(uid);
+                    }
+
                     const lastRead = lastReadMap[uid] || 0;
                     if (uid !== activeId && ts > lastRead) {
                         unreadMap[uid] = (unreadMap[uid] || 0) + 1;
@@ -219,29 +253,39 @@
                 <span class="status-dot ${onlineStatus[u] ? 'online' : 'offline'}"></span>
                 <span>${getShortName(u)}</span>
                 ${unreadMap[u] ? `<div class="badge">${unreadMap[u]}</div>` : ''}
-            </div>
-        `).join("");
+            </div>`
+        ).join("");
     }
 
-    // ── 聊天区增量渲染 ───────────────────────────────────────
+    // ── 顶部标题 + 位置栏更新 ────────────────────────────────
+    function updateTitleLoc(uid) {
+        document.getElementById('title-name').textContent = getShortName(uid);
+        const loc = userLocations.get(uid) || '';
+        const locBar = document.getElementById('loc-bar');
+        if (loc) {
+            locBar.textContent = '📍 ' + loc;
+            locBar.style.display = 'block';
+        } else {
+            locBar.style.display = 'none';
+        }
+    }
+
+    // ── 聊天区增量渲染（气泡改用链接渲染）──────────────────
     function renderChat() {
         if (!activeId) return;
         const msgs = [...msgMap.values()].filter(m => m.from === activeId || m.to === activeId);
 
         msgs.forEach(m => {
-            const k = m.id || m._ts; // 兼容 fallback ID
+            const k = m.id || m._ts;
             if (renderedKeys.has(k)) return;
             renderedKeys.add(k);
 
-            // 【新增】时间戳渲染逻辑（大于5分钟 = 300000毫秒）
             if (m._ts - lastRenderedTs > 300000 || lastRenderedTs === 0) {
                 const timeDiv = document.createElement('div');
                 timeDiv.className = 'msg-time';
-                // 使用后端传来的 HH:mm，如果没有则本地生成
                 timeDiv.textContent = m.time || new Date(m._ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Shanghai' });
                 box.appendChild(timeDiv);
             }
-            // 永远将最后渲染的时间更新为当前消息的时间
             lastRenderedTs = m._ts;
 
             const isAdmin = m.from === 'admin';
@@ -267,7 +311,8 @@
             } else {
                 const bbl = document.createElement('div');
                 bbl.className = 'bubble-txt';
-                bbl.textContent = m.text;
+                // ── 修改：用 innerHTML 渲染链接（原来是 bbl.textContent）──
+                bbl.innerHTML = renderTextWithLinks(m.text);
                 row.appendChild(bbl);
             }
 
@@ -287,13 +332,12 @@
         lastReadMap[activeId] = Date.now();
         localStorage.setItem('wepro_lastread', JSON.stringify(lastReadMap));
         unreadMap[activeId] = 0;
-        
-        // 切换用户时清空渲染记录和时间锚点
         renderedKeys.clear();
         lastRenderedTs = 0;
 
         ipt.disabled = false;
-        document.getElementById('title-name').innerText = getShortName(activeId);
+        // ── 修改：标题带位置 ──
+        updateTitleLoc(activeId);
         emptyTip.style.display = 'none';
         box.style.display = 'block';
         box.innerHTML = '';
