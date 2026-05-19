@@ -13,7 +13,7 @@
         #header { height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; font-size: 17px; font-weight: 500; }
         .head-icon { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
         #status-bar { width: 100%; text-align: center; color: #b2b2b2; font-size: 12px; padding: 2px 0; transition: color 0.3s; }
-        #loc-bar { width: 100%; text-align: center; font-size: 12px; color: #07c160; padding: 2px 0 4px; display: none; }
+        #loc-bar { font-size: 13px; color: #07c160; font-weight: normal; margin-left: 6px; display: none; }
 
         #container { flex: 1; display: flex; overflow: hidden; }
 
@@ -76,13 +76,12 @@
         <div class="head-icon" onclick="history.back()">
             <svg viewBox="0 0 24 24" width="22" height="22" stroke="#111" stroke-width="2" fill="none"><polyline points="15 18 9 12 15 6"></polyline></svg>
         </div>
-        <span id="title-name">WePro 客户管理</span>
+        <span id="title-name">WePro 客户管理</span><span id="loc-bar"></span>
         <div class="head-icon">
             <svg viewBox="0 0 24 24" width="24" height="24" fill="#111"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg>
         </div>
     </div>
     <div id="status-bar">正在连接...</div>
-    <div id="loc-bar"></div>
 </div>
 
 <div id="container">
@@ -257,14 +256,14 @@
         ).join("");
     }
 
-    // ── 顶部标题 + 位置栏更新 ────────────────────────────────
+    // ── 顶部标题 + 位置更新 ─────────────────────────────────
     function updateTitleLoc(uid) {
         document.getElementById('title-name').textContent = getShortName(uid);
         const loc = userLocations.get(uid) || '';
         const locBar = document.getElementById('loc-bar');
         if (loc) {
             locBar.textContent = '📍 ' + loc;
-            locBar.style.display = 'block';
+            locBar.style.display = 'inline';
         } else {
             locBar.style.display = 'none';
         }
