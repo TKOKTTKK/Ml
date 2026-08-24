@@ -188,7 +188,7 @@
 
 <script>
 // ── 后端地址 ────────────────────────────────────────────
-const SERVER_BASE = 'https://page-production-49f9.up.railway.app';
+const SERVER_BASE = 'https://ml-theta-three.vercel.app';
 
 // ── 持久化已读时间戳 ─────────────────────────────────────
 let lastReadMap = JSON.parse(localStorage.getItem('wepro_lastread') || '{}');
@@ -264,7 +264,7 @@ function markOnline(uid) {
 
 // ── WebSocket ────────────────────────────────────────────
 function connect() {
-    ws = new WebSocket('wss://ml-theta-three.vercel.app');
+    ws = new WebSocket('wss://page-production-49f9.up.railway.app');
 
     ws.onopen = () => {
         const status = document.getElementById('status-bar');
